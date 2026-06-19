@@ -1,0 +1,39 @@
+[package]
+name = "session-weaver"
+version = "0.1.1"
+edition = "2024"
+rust-version = "1.88"
+description = "Safely migrate session history between Claude Code and Codex"
+license-file = "LICENSE"
+repository = "https://github.com/BUG-gao/session-weaver"
+keywords = ["claude-code", "codex", "session", "migration", "cli"]
+categories = ["command-line-utilities", "development-tools"]
+
+[lib]
+name = "session_weaver"
+path = "src/lib.rs"
+
+[[bin]]
+name = "session-weaver"
+path = "src/main.rs"
+
+[[bin]]
+name = "sw"
+path = "src/bin/sw.rs"
+
+[dependencies]
+anyhow = "1.0"
+chrono = { version = "0.4", features = ["clock", "serde"] }
+clap = { version = "4.5", features = ["derive"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+uuid = { version = "1.18", features = ["serde", "v4", "v7"] }
+walkdir = "2.5"
+
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.1"
+proptest = "1.7"
+tempfile = "3.23"

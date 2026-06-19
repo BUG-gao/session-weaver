@@ -1,0 +1,31 @@
+name: 兼容问题
+description: 报告 Claude Code 或 Codex 会话迁移失败
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: 请勿上传真实会话、凭证、API Key、cookie 或未脱敏源码。
+  - type: input
+    id: version
+    attributes:
+      label: Session Weaver 版本
+    validations:
+      required: true
+  - type: input
+    id: clients
+    attributes:
+      label: 客户端版本
+      description: Claude Code 与 Codex 的准确版本
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 脱敏复现步骤
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: check/doctor 输出
