@@ -4,7 +4,10 @@
 
 让 codex→claude 迁移的会话能在 Claude 桌面 App（实测 2.1.181 / 2.1.183）里正常显示并继续对话，修复三个独立问题：
 
-- **发消息报 `Invalid request`**：迁移到 Claude 时不再输出 `thinking` 块。Anthropic API 要求历史中的 `thinking` 块携带原始加密 `signature`，迁移伪造的（甚至空的）thinking 块会使下一轮请求被 400 拒绝；reasoning 无法携带合法签名，故丢弃，并保持 parentUuid 链完整。
+- **发消息报 `Invalid request`**：历史里有三类被 Anthropic API 拒绝（400）的结构，迁移到 Claude 时已全部规范化：
+  - `thinking` 块——API 要求携带原始加密 `signature`，迁移伪造的（甚至空的）无签名 thinking 块会被拒；reasoning 无法携带合法签名，故丢弃并保持 parentUuid 链完整。
+  - `tool_use.input` 为字符串——Codex 的部分工具参数（如 `apply_patch` 的 patch 文本）是原始/JSON 字符串，API 要求 `input` 必须是对象；现解析为对象，无法解析的包成 `{"input": "..."}`。
+  - `tool_result` 内的 `input_image` 块——Codex 用 `{type:"input_image", image_url:"data:..."}`，API 只认 `{type:"image", source:{...}}`；现转换为 base64 `image` 块。
 - **会话不出现在历史列表**：桌面 App 读取的是自身注册表 `claude-code-sessions/<账号>/<工作区>/local_<id>.json` 而非 `~/.claude/projects/*.jsonl`。迁移到 Claude 时自动写入该注册文件（复用同 `cwd` 已有会话的工作区目录，找不到则跳过），权限取最保守默认值，不预授权任何工具或目录。
 - **模型 id 兼容性**：不再把源 provider 的非 Claude 模型 id（如 `gpt-5.5`、`<synthetic>`）写入 Claude 的 `model` 字段，统一回退到 `--claude-model`；claude→claude 迁移仍保留原 Claude 模型。
 

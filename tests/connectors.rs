@@ -103,6 +103,55 @@ fn claude_renderer_coerces_foreign_model_ids() {
 }
 
 #[test]
+fn claude_renderer_normalizes_tool_input_and_result_images() {
+    // Codex emits string tool arguments and `input_image` result blocks, both
+    // of which the Anthropic API rejects with a 400 on replay.
+    let mut conversation = sample();
+    conversation.entries = vec![
+        Entry::User(Message::text("u1", "hi")),
+        Entry::ToolCall(ToolCall {
+            id: "call-patch".into(),
+            name: "apply_patch".into(),
+            // raw, non-JSON string argument
+            arguments: json!("*** Begin Patch\n*** Update File: a.txt"),
+            timestamp: None,
+        }),
+        Entry::ToolResult(ToolResult {
+            id: "res-patch".into(),
+            call_id: "call-patch".into(),
+            output: json!([
+                {"type": "input_image", "detail": "high",
+                 "image_url": "data:image/png;base64,aGVsbG8="}
+            ]),
+            is_error: false,
+            timestamp: None,
+        }),
+    ];
+
+    let values = claude::render(&conversation, "claude-opus-4-8").unwrap();
+    let tool_use = values
+        .iter()
+        .find_map(|v| v["message"]["content"].as_array().and_then(|b| {
+            b.iter().find(|x| x["type"] == "tool_use").cloned()
+        }))
+        .unwrap();
+    assert!(tool_use["input"].is_object(), "tool_use.input must be an object");
+    assert_eq!(tool_use["input"]["input"].as_str().unwrap(), "*** Begin Patch\n*** Update File: a.txt");
+
+    let result = values
+        .iter()
+        .find_map(|v| v["message"]["content"].as_array().and_then(|b| {
+            b.iter().find(|x| x["type"] == "tool_result").cloned()
+        }))
+        .unwrap();
+    let inner = &result["content"][0];
+    assert_eq!(inner["type"], "image");
+    assert_eq!(inner["source"]["type"], "base64");
+    assert_eq!(inner["source"]["media_type"], "image/png");
+    assert_eq!(inner["source"]["data"], "aGVsbG8=");
+}
+
+#[test]
 fn claude_renderer_drops_reasoning_blocks() {
     // Migrated reasoning cannot carry a valid Anthropic `signature`, so the
     // Claude renderer must not emit `thinking` blocks at all — otherwise the

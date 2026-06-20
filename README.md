@@ -51,7 +51,7 @@ Session Weaver 针对这些问题提供：
 
 修复了三个相互独立、共同导致「迁移会话无法在 Claude 桌面 App 里使用」的问题（基于 2.1.181 / 2.1.183 实测）：
 
-1. **发消息报 `Invalid request`（关键）**：迁移会把 Codex 的 reasoning 渲染成 `thinking` 块，但 Anthropic API 要求历史里的每个 `thinking` 块都带原始加密 `signature`，伪造的（甚至空的）thinking 块会让下一轮请求被 400 拒绝。现在迁移到 Claude 时**不再输出 `thinking` 块**（reasoning 无法携带合法签名，只能丢弃），并保持 parentUuid 链完整。
+1. **发消息报 `Invalid request`（关键）**：历史里有三类被 Anthropic API 拒绝（400）的结构，现已全部规范化：① `thinking` 块缺少原始加密 `signature`（迁移无法伪造，故**丢弃 reasoning**并保持 parentUuid 链完整）；② `tool_use.input` 为字符串（如 `apply_patch` 的 patch 文本），API 要求必须是对象（现解析或包成对象）；③ `tool_result` 里的 Codex `input_image` 块（现转换为 Anthropic 的 base64 `image` 块）。
 
 2. **会话不出现在历史列表**：桌面 App 的历史列表读取的是它自己的注册表
    `~/Library/Application Support/Claude/claude-code-sessions/<账号>/<工作区>/local_<id>.json`，而不是 `~/.claude/projects/*.jsonl`。迁移到 Claude 时现在会**自动写入该注册文件**（复用同一 `cwd` 已有会话的工作区目录；找不到则跳过，不影响迁移）。注册文件只用最保守的权限（`permissionMode: default`，不预授权任何工具或目录）。

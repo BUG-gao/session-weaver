@@ -341,7 +341,7 @@ pub fn render(conversation: &Conversation, fallback_model: &str) -> Result<Vec<V
                         "type": "tool_use",
                         "id": call.id,
                         "name": call.name,
-                        "input": call.arguments,
+                        "input": normalize_tool_input(&call.arguments),
                         "caller": {"type": "direct"}
                     }]),
                     "tool_use",
@@ -356,7 +356,7 @@ pub fn render(conversation: &Conversation, fallback_model: &str) -> Result<Vec<V
                     "content": [{
                         "type": "tool_result",
                         "tool_use_id": result.call_id,
-                        "content": result.output,
+                        "content": normalize_tool_result_content(&result.output),
                         "is_error": result.is_error,
                     }]
                 });
@@ -367,6 +367,61 @@ pub fn render(conversation: &Conversation, fallback_model: &str) -> Result<Vec<V
         output.push(line);
     }
     Ok(output)
+}
+
+/// The Anthropic API requires `tool_use.input` to be a JSON object. Codex
+/// stores some tool arguments as a raw string (e.g. an `apply_patch` body) or
+/// as a JSON-encoded string, both of which trigger a 400 on replay. Parse a
+/// JSON object when possible, otherwise wrap the value in an object.
+fn normalize_tool_input(arguments: &Value) -> Value {
+    match arguments {
+        Value::Object(_) => arguments.clone(),
+        Value::String(text) => match serde_json::from_str::<Value>(text) {
+            Ok(Value::Object(map)) => Value::Object(map),
+            _ => json!({ "input": text }),
+        },
+        other => json!({ "input": other }),
+    }
+}
+
+/// Normalize a tool result `content` to what the Anthropic API accepts: a
+/// string, or an array of `text`/`image` blocks. Codex emits foreign block
+/// types (notably `input_image` with a data URL) that must be rewritten to
+/// Anthropic `image` blocks, or the next turn is rejected with a 400.
+fn normalize_tool_result_content(output: &Value) -> Value {
+    match output {
+        Value::String(_) => output.clone(),
+        Value::Array(items) => Value::Array(items.iter().map(normalize_result_block).collect()),
+        other => Value::String(other.to_string()),
+    }
+}
+
+fn normalize_result_block(block: &Value) -> Value {
+    match block.get("type").and_then(Value::as_str) {
+        Some("text") | Some("image") => block.clone(),
+        Some("input_image") => block
+            .get("image_url")
+            .and_then(Value::as_str)
+            .map(image_block_from_url)
+            .unwrap_or_else(|| json!({"type": "text", "text": block.to_string()})),
+        _ => json!({"type": "text", "text": block.to_string()}),
+    }
+}
+
+/// Build an Anthropic `image` block from a URL, splitting a `data:` URL into
+/// the base64 source the API expects.
+fn image_block_from_url(url: &str) -> Value {
+    if let Some((meta, data)) = url
+        .strip_prefix("data:")
+        .and_then(|rest| rest.split_once(','))
+    {
+        let media_type = meta.split(';').next().unwrap_or("image/png");
+        return json!({
+            "type": "image",
+            "source": {"type": "base64", "media_type": media_type, "data": data},
+        });
+    }
+    json!({"type": "image", "source": {"type": "url", "url": url}})
 }
 
 /// Whether a model id is a Claude model the Claude desktop app can resolve.
