@@ -47,6 +47,8 @@ Session Weaver 针对这些问题提供：
 
 这些问题无法被普通 JSON 语法检查发现。Session Weaver 的 `check` 命令会验证到字段路径。
 
+**0.1.2** 修复了 codex→claude 迁移后会话不显示在 Claude 桌面 App 历史列表的问题。根因：迁移会把源模型 id（如 `gpt-5.5`、`<synthetic>`）写入 Claude 的 `model` 字段，而 Claude 桌面 App（实测 2.1.181 / 2.1.183）会隐藏无法解析模型的会话。现已将非 Claude 模型回退到 `--claude-model`，claude→claude 迁移仍保留原 Claude 模型不变。
+
 ## 兼容矩阵
 
 | 来源 | 目标 | 状态 | 验证方式 |
