@@ -250,11 +250,16 @@ pub fn render(conversation: &Conversation, fallback_model: &str) -> Result<Vec<V
         .git_branch
         .as_deref()
         .unwrap_or("HEAD");
+    // The Claude desktop app indexes sessions by their declared `model`. A
+    // session whose assistant records carry a non-Claude model id (e.g. a
+    // Codex source's `gpt-5.5`) is silently dropped from the app's history
+    // list, so any model coming from the source must be coerced to a valid
+    // Claude model before it lands in the Claude transcript.
     let default_model = conversation
         .metadata
         .model
         .as_deref()
-        .filter(|value| !value.trim().is_empty())
+        .filter(|value| is_claude_model(value))
         .unwrap_or(fallback_model);
     let mut output = Vec::new();
     let mut parent: Option<String> = None;
@@ -291,7 +296,11 @@ pub fn render(conversation: &Conversation, fallback_model: &str) -> Result<Vec<V
                 line["message"] = assistant_message(
                     encode_parts(&message.parts),
                     "end_turn",
-                    message.model.as_deref().unwrap_or(default_model),
+                    message
+                        .model
+                        .as_deref()
+                        .filter(|value| is_claude_model(value))
+                        .unwrap_or(default_model),
                 );
             }
             Entry::Developer(message) | Entry::System(message) => {
@@ -354,6 +363,14 @@ pub fn render(conversation: &Conversation, fallback_model: &str) -> Result<Vec<V
         output.push(line);
     }
     Ok(output)
+}
+
+/// Whether a model id is a Claude model the Claude desktop app can resolve.
+/// Source transcripts from other providers carry foreign ids (e.g. `gpt-5.5`)
+/// that must not be written into a Claude session, or the app hides it.
+fn is_claude_model(model: &str) -> bool {
+    let model = model.trim();
+    !model.is_empty() && model.to_ascii_lowercase().starts_with("claude")
 }
 
 fn assistant_message(content: Value, stop_reason: &str, model: &str) -> Value {

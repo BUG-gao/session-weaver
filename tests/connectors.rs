@@ -80,6 +80,38 @@ fn claude_renderer_emits_resume_safe_fields() {
 }
 
 #[test]
+fn claude_renderer_coerces_foreign_model_ids() {
+    // A Codex source carries a non-Claude model id; the Claude desktop app
+    // hides sessions whose `model` it cannot resolve, so every assistant
+    // record must fall back to the requested Claude model instead.
+    let mut conversation = sample();
+    conversation.metadata.model = Some("gpt-5.5".into());
+    if let Some(Entry::Assistant(message)) = conversation
+        .entries
+        .iter_mut()
+        .find(|entry| matches!(entry, Entry::Assistant(_)))
+    {
+        message.model = Some("gpt-5.5".into());
+    }
+
+    let values = claude::render(&conversation, "claude-opus-4-8").unwrap();
+    assert!(values.iter().filter(|v| v["type"] == "assistant").all(|v| {
+        v["message"]["model"]
+            .as_str()
+            .is_some_and(|model| model.starts_with("claude"))
+    }));
+}
+
+#[test]
+fn claude_renderer_preserves_native_claude_model() {
+    // claude->claude migrations must keep the original Claude model verbatim.
+    let values = claude::render(&sample(), "fallback-model").unwrap();
+    assert!(values.iter().filter(|v| v["type"] == "assistant").all(|v| {
+        v["message"]["model"] == "claude-sonnet-4-20250514"
+    }));
+}
+
+#[test]
 fn claude_parser_reads_messages_and_tools() {
     let directory = tempdir().unwrap();
     let path = directory.path().join("claude.jsonl");
