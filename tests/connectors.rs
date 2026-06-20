@@ -103,6 +103,34 @@ fn claude_renderer_coerces_foreign_model_ids() {
 }
 
 #[test]
+fn claude_renderer_drops_reasoning_blocks() {
+    // Migrated reasoning cannot carry a valid Anthropic `signature`, so the
+    // Claude renderer must not emit `thinking` blocks at all — otherwise the
+    // API rejects the next turn with a 400 and the session is unusable.
+    use session_weaver::core::Thought;
+    let mut conversation = sample();
+    conversation.entries.insert(
+        1,
+        Entry::Thought(Thought {
+            id: "r1".into(),
+            summary: Some("plan".into()),
+            content: "private reasoning".into(),
+            timestamp: None,
+        }),
+    );
+
+    let values = claude::render(&conversation, "claude-opus-4-8").unwrap();
+    let has_thinking = values.iter().any(|v| {
+        v["message"]["content"]
+            .as_array()
+            .is_some_and(|blocks| blocks.iter().any(|b| b["type"] == "thinking"))
+    });
+    assert!(!has_thinking, "thinking blocks must not be emitted");
+    // The parent chain must remain unbroken after dropping the entry.
+    assert!(claude::validate_native(&values).is_empty());
+}
+
+#[test]
 fn claude_renderer_preserves_native_claude_model() {
     // claude->claude migrations must keep the original Claude model verbatim.
     let values = claude::render(&sample(), "fallback-model").unwrap();

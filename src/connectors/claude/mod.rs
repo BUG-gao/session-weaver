@@ -13,6 +13,8 @@ use crate::core::{
     Stage, Thought, ToolCall, ToolResult,
 };
 
+pub mod desktop;
+
 pub fn parse_file(path: &Path) -> Result<Conversation> {
     let reader = BufReader::new(
         File::open(path)
@@ -322,13 +324,15 @@ pub fn render(conversation: &Conversation, fallback_model: &str) -> Result<Vec<V
                 });
                 line["permissionMode"] = json!("default");
             }
-            Entry::Thought(thought) => {
-                line["type"] = json!("assistant");
-                line["message"] = assistant_message(
-                    json!([{"type": "thinking", "thinking": thought.content}]),
-                    "end_turn",
-                    default_model,
-                );
+            Entry::Thought(_) => {
+                // Reasoning cannot survive the trip to a Claude session: the
+                // Anthropic API requires every `thinking` block replayed in
+                // history to carry the original cryptographic `signature`,
+                // which a migrated transcript cannot forge. Emitting an
+                // unsigned (or empty) thinking block makes the whole session
+                // unusable — the API rejects the next turn with a 400. Drop
+                // reasoning entirely instead, keeping the parent chain intact.
+                continue;
             }
             Entry::ToolCall(call) => {
                 line["type"] = json!("assistant");
@@ -497,10 +501,23 @@ fn update_bounds(metadata: &mut ConversationMeta, timestamp: DateTime<Utc>) {
 }
 
 fn first_user_text(conversation: &Conversation) -> Option<String> {
+    // Skip imported boilerplate (the injected developer/system, permissions
+    // and app-context preamble) so the derived title reflects the first real
+    // user prompt instead of `[Session Weaver imported developer message]`.
+    const BOILERPLATE_PREFIXES: [&str; 4] = [
+        "[Session Weaver imported",
+        "[transession imported",
+        "<permissions",
+        "<app-context",
+    ];
     conversation.entries.iter().find_map(|entry| match entry {
         Entry::User(message) => {
             let text = message.plain_text();
-            (!text.trim().is_empty()).then(|| text.chars().take(80).collect())
+            let first_line = text.lines().map(str::trim).find(|line| !line.is_empty())?;
+            let is_boilerplate = BOILERPLATE_PREFIXES
+                .iter()
+                .any(|prefix| first_line.starts_with(prefix));
+            (!is_boilerplate).then(|| first_line.chars().take(80).collect())
         }
         _ => None,
     })

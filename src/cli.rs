@@ -3,12 +3,14 @@ use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 
 use anyhow::{Context, Result, bail};
+use chrono::Utc;
 use clap::{Args, Parser, Subcommand};
 use serde_json::{Value, json};
 
 use crate::catalog::{discover_sessions, register_codex_thread};
 use crate::connectors::claude;
-use crate::core::{ClientKind, Severity, validate_conversation};
+use crate::connectors::claude::desktop::{DesktopSession, register_session, sessions_dir};
+use crate::core::{ClientKind, Entry, Severity, validate_conversation};
 use crate::pipeline::{
     MoveOptions, append_native_index, export_package, import_package, move_session, output_path,
     parse, render, write_jsonl_atomic,
@@ -304,8 +306,57 @@ fn move_command(args: MoveArgs) -> Result<()> {
             resume_command(args.target, &report.target_id)
         );
     }
+    if args.target == ClientKind::Claude {
+        register_claude_desktop(&report.output, &args.claude_model)?;
+    }
     if args.open {
         open_client(args.target, &report.target_id, &root)?;
+    }
+    Ok(())
+}
+
+/// Best-effort registration of a freshly migrated session with the Claude
+/// desktop app so it appears in the in-app history list. Never fails the
+/// migration: a missing app install or unknown workspace is simply skipped.
+fn register_claude_desktop(output: &Path, model: &str) -> Result<()> {
+    let Some(base) = sessions_dir() else {
+        return Ok(());
+    };
+    let conversation = parse(ClientKind::Claude, output)?;
+    let cwd = match conversation.metadata.cwd.as_deref() {
+        Some(cwd) => cwd,
+        None => return Ok(()),
+    };
+    let timestamps: Vec<i64> = conversation
+        .entries
+        .iter()
+        .filter_map(|entry| entry.timestamp())
+        .map(|time| time.timestamp_millis())
+        .collect();
+    let now = Utc::now().timestamp_millis();
+    let created = timestamps.first().copied().unwrap_or(now);
+    let last_activity = timestamps.last().copied().unwrap_or(now);
+    let completed_turns = conversation
+        .entries
+        .iter()
+        .filter(|entry| matches!(entry, Entry::User(_)))
+        .count();
+    let session = DesktopSession {
+        cli_session_id: &conversation.id,
+        cwd,
+        model,
+        title: conversation.metadata.title.as_deref(),
+        git_branch: conversation.metadata.git_branch.as_deref(),
+        created_ms: created,
+        last_activity_ms: last_activity,
+        completed_turns,
+    };
+    match register_session(&base, &session) {
+        Ok(Some(path)) => println!("已登记到 Claude 桌面 App: {}", path.display()),
+        Ok(None) => println!(
+            "提示: 未在 Claude 桌面 App 中找到该项目的工作区，跳过登记（可在 App 里打开过该目录后重试）"
+        ),
+        Err(error) => eprintln!("警告: 登记 Claude 桌面 App 失败: {error}"),
     }
     Ok(())
 }
@@ -353,6 +404,9 @@ fn import(args: ImportArgs) -> Result<()> {
     append_native_index(args.target, &root, &conversation)?;
     if args.target == ClientKind::Codex {
         register_codex_thread(&root, &conversation, &path)?;
+    }
+    if args.target == ClientKind::Claude {
+        register_claude_desktop(&path, &args.claude_model)?;
     }
     println!("{}", path.display());
     Ok(())

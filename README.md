@@ -47,7 +47,20 @@ Session Weaver 针对这些问题提供：
 
 这些问题无法被普通 JSON 语法检查发现。Session Weaver 的 `check` 命令会验证到字段路径。
 
-**0.1.2** 修复了 codex→claude 迁移后会话不显示在 Claude 桌面 App 历史列表的问题。根因：迁移会把源模型 id（如 `gpt-5.5`、`<synthetic>`）写入 Claude 的 `model` 字段，而 Claude 桌面 App（实测 2.1.181 / 2.1.183）会隐藏无法解析模型的会话。现已将非 Claude 模型回退到 `--claude-model`，claude→claude 迁移仍保留原 Claude 模型不变。
+### 0.1.2：让 codex→claude 迁移会话能在桌面 App 里正常使用
+
+修复了三个相互独立、共同导致「迁移会话无法在 Claude 桌面 App 里使用」的问题（基于 2.1.181 / 2.1.183 实测）：
+
+1. **发消息报 `Invalid request`（关键）**：迁移会把 Codex 的 reasoning 渲染成 `thinking` 块，但 Anthropic API 要求历史里的每个 `thinking` 块都带原始加密 `signature`，伪造的（甚至空的）thinking 块会让下一轮请求被 400 拒绝。现在迁移到 Claude 时**不再输出 `thinking` 块**（reasoning 无法携带合法签名，只能丢弃），并保持 parentUuid 链完整。
+
+2. **会话不出现在历史列表**：桌面 App 的历史列表读取的是它自己的注册表
+   `~/Library/Application Support/Claude/claude-code-sessions/<账号>/<工作区>/local_<id>.json`，而不是 `~/.claude/projects/*.jsonl`。迁移到 Claude 时现在会**自动写入该注册文件**（复用同一 `cwd` 已有会话的工作区目录；找不到则跳过，不影响迁移）。注册文件只用最保守的权限（`permissionMode: default`，不预授权任何工具或目录）。
+
+3. **模型 id 兼容性（正确性）**：不再把源 provider 的非 Claude 模型 id（如 `gpt-5.5`、`<synthetic>`）写入 Claude 的 `model` 字段，统一回退到 `--claude-model`；claude→claude 迁移仍保留原 Claude 模型。
+
+附带：迁移会话的标题改为取第一条**真实用户消息**，不再是注入的权限/开发者样板文字。
+
+> 注：第 2 项依赖桌面 App 当前的注册表布局，属于对未公开格式的适配，App 升级后可能需要跟进。
 
 ## 兼容矩阵
 
